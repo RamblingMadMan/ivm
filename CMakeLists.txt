@@ -11,6 +11,7 @@ set(
 	IVM_HEADERS
 	${IVM_INCLUDE_DIR}/ivm/Buffer.h
 	${IVM_INCLUDE_DIR}/ivm/Instr.h
+	${IVM_INCLUDE_DIR}/ivm/IR.h
 )
 
 include_directories(include)

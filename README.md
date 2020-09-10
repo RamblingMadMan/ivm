@@ -11,3 +11,5 @@ IVM is designed with the [Lemni programming language](https://github.com/Ramblin
 The compiler directly emits machine code for the target platform/architecture and returns a pointer to the code. The code pointed to can then be called as a function for native code-gen, or stored to a file.
 
 There is no intermediary and there is no bytecode optimization. This means that for many instructions, there is a 1:1 correspondance with common architectures.
+
+If optimization or a more abstract description of the program is required, an IR is included. It is an in-memory IR and serves as a compiler backend target.
