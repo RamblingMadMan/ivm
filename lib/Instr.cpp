@@ -25,7 +25,24 @@
 #include <vector>
 #include <map>
 
+#if defined(__linux__)
 #include <unistd.h>
+
+size_t getPageSize(){
+	return sysconf(_SC_PAGESIZE);
+}
+#elif defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+size_t getPageSize(){
+	SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwPageSize;
+}
+#else
+#error "Unsupported platform"
+#endif
 
 #include "ivm/Instr.h"
 #include "ivm/Buffer.h"
@@ -531,12 +548,17 @@ IvmEmitter ivmCreateEmitter(IvmArch arch, IvmPlatform platform){
 	auto mem = std::malloc(sizeof(IvmEmitterT));
 	if(!mem) return nullptr;
 
-	auto pageSize = sysconf(_SC_PAGESIZE);
+	auto pageSize = getPageSize();
+	auto buf = ivmCreateBuffer(pageSize);
+	if(!buf){
+		std::free(mem);
+		return nullptr;
+	}
 
 	auto p = new(mem) IvmEmitterT;
 
 	p->emitFn = emitFn;
-	p->buffer = ivmCreateBuffer(pageSize);
+	p->buffer = buf;
 
 	return p;
 }

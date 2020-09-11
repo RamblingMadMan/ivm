@@ -20,9 +20,59 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
-#include <new>
 
+#include <new>
+#include <memory>
+
+#if defined(__linux__)
 #include <sys/mman.h>
+
+static inline void *allocMemory(size_t capacity){
+	auto ret = mmap(nullptr, capacity, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	return ret == MAP_FAILED ? nullptr : ret;
+}
+
+static inline bool freeMemory(size_t len, void *mem){
+	return munmap(mem, len) == 0;
+}
+
+static inline bool makeMemoryExecutable(size_t len, void *mem){
+	return mprotect(mem, len, PROT_EXEC) == 0;
+}
+
+static inline bool makeMemoryWritable(size_t len, void *mem){
+	return mprotect(mem, len, PROT_READ | PROT_WRITE) == 0;
+}
+
+static inline const char *getAllocError(){ return strerror(errno); }
+#elif defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+static inline void *allocMemory(size_t capacity){
+	return VirtualAlloc(nullptr, capacity, MEM_COMMIT, PAGE_READWRITE);
+}
+
+static inline bool freeMemory(size_t len, void *mem){
+	(void)len;
+	return VirtualFree(mem, 0, MEM_RELEASE);
+}
+
+static inline bool makeMemoryExecutable(size_t len, void *mem){
+	DWORD dummy;
+	return VirtualProtect(mem, len, PAGE_EXECUTE_READ, &dummy);
+}
+
+static inline bool makeMemoryWritable(size_t len, void *mem){
+	DWORD dummy;
+	return VirtualProtect(mem, len, PAGE_READWRITE, &dummy);
+}
+
+static inline const char *getAllocError(){ return "error in VirtualAlloc or VirtualProtect"; }
+#else
+#error "Unsupported platform"
+#endif
+
 
 #include "ivm/Buffer.h"
 
@@ -33,11 +83,14 @@ struct IvmBufferT{
 };
 
 IvmBuffer ivmCreateBuffer(size_t capacity){
-	auto ptr = mmap(nullptr, capacity, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-	assert(ptr != MAP_FAILED);
-
 	auto mem = std::malloc(sizeof(IvmBufferT));
 	if(!mem) return nullptr;
+
+	auto ptr = allocMemory(capacity);
+	if(!ptr){
+		std::free(mem);
+		return nullptr;
+	}
 
 	auto ret = new(mem) IvmBufferT;
 
@@ -49,7 +102,11 @@ IvmBuffer ivmCreateBuffer(size_t capacity){
 	return ret;
 }
 
-void ivmDestroyBuffer(IvmBuffer buf){ munmap(buf->ptr, buf->cap); }
+void ivmDestroyBuffer(IvmBuffer buf){
+	freeMemory(buf->cap, buf->ptr);
+	std::destroy_at(buf);
+	std::free(buf);
+}
 
 bool ivmBufferIsWritable(IvmBufferConst buf){ return buf->isWritable; }
 
@@ -64,17 +121,15 @@ bool ivmBufferEnsureCapacity(IvmBuffer buf, size_t size){
 
 	auto newCapacity = std::max(buf->cap * 2, buf->cap + size);
 
-	auto newMap = mmap(nullptr, newCapacity, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-	if(newMap == MAP_FAILED){
-		return false;
-	}
+	auto mem = allocMemory(newCapacity);
+	if(!mem) return false;
 
-	std::memcpy(newMap, buf->ptr, buf->len);
+	std::memcpy(mem, buf->ptr, buf->len);
 
 	// TODO: handle failure
-	munmap(buf->ptr, buf->cap);
+	freeMemory(buf->cap, buf->ptr);
 
-	buf->ptr = newMap;
+	buf->ptr = mem;
 	buf->cap = newCapacity;
 	buf->isWritable = true;
 
@@ -118,7 +173,7 @@ void ivmBufferWrite32(IvmBuffer buf, uint32_t bits){
 }
 
 bool ivmBufferMakeExecutable(IvmBuffer buf){
-	if(mprotect(buf->ptr, buf->len, PROT_EXEC) != 0){
+	if(!makeMemoryExecutable(buf->len, buf->ptr)){
 		return false;
 	}
 
@@ -127,7 +182,7 @@ bool ivmBufferMakeExecutable(IvmBuffer buf){
 }
 
 bool ivmBufferMakeWritable(IvmBuffer buf){
-	if(mprotect(buf->ptr, buf->len, PROT_READ | PROT_WRITE) != 0){
+	if(!makeMemoryWritable(buf->len, buf->ptr)){
 		return false;
 	}
 
