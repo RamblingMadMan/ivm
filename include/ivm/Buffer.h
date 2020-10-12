@@ -35,6 +35,7 @@ typedef struct IvmBufferT *IvmBuffer;
 typedef const struct IvmBufferT *IvmBufferConst;
 
 IvmBuffer ivmCreateBuffer(size_t capacity);
+IvmBuffer ivmCreatePageBuffer();
 
 void ivmDestroyBuffer(IvmBuffer buf);
 
@@ -52,9 +53,11 @@ const void *ivmBufferConstPtr(IvmBufferConst buf);
 uint8_t ivmBufferGet(IvmBufferConst buf, size_t idx);
 uint8_t ivmBufferSet(IvmBuffer buf, size_t idx, uint8_t bits);
 
-void ivmBufferWrite(IvmBuffer buf, size_t n, const uint8_t *bytes);
-void ivmBufferWrite8(IvmBuffer buf, uint8_t bits);
-void ivmBufferWrite32(IvmBuffer buf, uint32_t bits);
+bool ivmBufferWrite(IvmBuffer buf, size_t len, const void *ptr);
+bool ivmBufferWrite8(IvmBuffer buf, uint8_t bits);
+bool ivmBufferWrite16(IvmBuffer buf, uint16_t bits);
+bool ivmBufferWrite32(IvmBuffer buf, uint32_t bits);
+bool ivmBufferWrite64(IvmBuffer buf, uint64_t bits);
 
 bool ivmBufferMakeExecutable(IvmBuffer buf);
 bool ivmBufferMakeWritable(IvmBuffer buf);

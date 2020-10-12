@@ -14,6 +14,8 @@ CMakeLists.txt.user
 *.kdev4
 **/*.autosave
 **/*.kdev4
+.idea
+.idea/*
 
 # Prerequisites
 *.d

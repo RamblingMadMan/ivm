@@ -20,9 +20,70 @@
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
+#include <cstdio>
 #include <new>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+
+static inline size_t sysPageSize() noexcept{
+	SYSTEM_INFO system_info;
+    GetSystemInfo(&system_info);
+    return system_info.dwPageSize;
+}
+
+static inline void *mapMem(size_t len){
+	return VirtualAlloc(nullptr, len, MEM_COMMIT, PAGE_READWRITE);
+}
+
+static inline bool freeMem(size_t len, void *ptr){
+	(void)len;
+	return VirtualFree(ptr, 0, MEM_RELEASE);
+}
+
+static inline bool makeMemoryExecutable(size_t len, void *ptr){
+	DWORD dummy;
+	return VirtualProtect(ptr, len, PAGE_EXECUTE_READ, &dummy);
+}
+
+static inline bool makeMemoryWritable(size_t len, void *ptr){
+	DWORD dummy;
+	return VirtualProtect(ptr, len, PAGE_READWRITE, &dummy);
+}
+
+static inline const char *getMemError(){ return "error in VirtualAlloc or VirtualProtect"; }
+#elif defined(__linux__)
+#include <errno.h>
 #include <sys/mman.h>
+#include <unistd.h>
+
+static inline size_t sysPageSize() noexcept{ return size_t(sysconf(_SC_PAGESIZE)); }
+
+static inline void *mapMem(size_t len){
+	auto ptr = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
+	if(ptr == MAP_FAILED) return nullptr;
+	return ptr;
+}
+
+static inline bool unmapMem(size_t len, void *ptr){
+	return munmap(ptr, len) == 0;
+}
+
+static inline bool makeMemoryExecutable(size_t len, void *mem){
+	return mprotect(mem, len, PROT_EXEC) == 0;
+}
+
+static inline bool makeMemoryWritable(size_t len, void *mem){
+	return mprotect(mem, len, PROT_READ | PROT_WRITE) == 0;
+}
+
+static inline const char *getMemError(){
+	return strerror(errno);
+}
+#else
+#error "Unsupported platform"
+#endif
 
 #include "ivm/Buffer.h"
 
@@ -33,8 +94,11 @@ struct IvmBufferT{
 };
 
 IvmBuffer ivmCreateBuffer(size_t capacity){
-	auto ptr = mmap(nullptr, capacity, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-	assert(ptr != MAP_FAILED);
+	auto ptr = mapMem(capacity);
+	if(!ptr){
+		std::fprintf(stderr, "error allocating memory for buffer: %s\n", getMemError());
+		return nullptr;
+	}
 
 	auto mem = std::malloc(sizeof(IvmBufferT));
 	if(!mem) return nullptr;
@@ -49,7 +113,12 @@ IvmBuffer ivmCreateBuffer(size_t capacity){
 	return ret;
 }
 
-void ivmDestroyBuffer(IvmBuffer buf){ munmap(buf->ptr, buf->cap); }
+IvmBuffer ivmCreatePageBuffer(){
+	auto pageSize = sysPageSize();
+	return ivmCreateBuffer(pageSize);
+}
+
+void ivmDestroyBuffer(IvmBuffer buf){ unmapMem(buf->cap, buf->ptr); }
 
 bool ivmBufferIsWritable(IvmBufferConst buf){ return buf->isWritable; }
 
@@ -64,15 +133,16 @@ bool ivmBufferEnsureCapacity(IvmBuffer buf, size_t size){
 
 	auto newCapacity = std::max(buf->cap * 2, buf->cap + size);
 
-	auto newMap = mmap(nullptr, newCapacity, PROT_READ | PROT_WRITE, MAP_ANON | MAP_PRIVATE, -1, 0);
-	if(newMap == MAP_FAILED){
+	auto newMap = mapMem(newCapacity);
+	if(!newMap){
+		std::fprintf(stderr, "error allocating memory: %s\n", getMemError());
 		return false;
 	}
 
 	std::memcpy(newMap, buf->ptr, buf->len);
 
 	// TODO: handle failure
-	munmap(buf->ptr, buf->cap);
+	unmapMem(buf->cap, buf->ptr);
 
 	buf->ptr = newMap;
 	buf->cap = newCapacity;
@@ -95,30 +165,45 @@ uint8_t ivmBufferSet(IvmBuffer buf, size_t idx, uint8_t bits){
 	return old;
 }
 
-void ivmBufferWrite(IvmBuffer buf, size_t n, const uint8_t *bytes){
-	ivmBufferEnsureCapacity(buf, n);
-	std::memcpy(reinterpret_cast<char*>(buf->ptr) + buf->len, bytes, n);
-	buf->len += n;
+bool ivmBufferWrite(IvmBuffer buf, size_t len, const void *ptr){
+	if(!ivmBufferEnsureCapacity(buf, len)) return false;
+	std::memcpy(reinterpret_cast<char*>(buf->ptr) + buf->len, ptr, len);
+	buf->len += len;
+	return true;
 }
 
-void ivmBufferWrite8(IvmBuffer buf, uint8_t bits){
-	ivmBufferEnsureCapacity(buf, 1);
+bool ivmBufferWrite8(IvmBuffer buf, uint8_t bits){
+	if(!ivmBufferEnsureCapacity(buf, 1)) return false;
 	ivmBufferSet(buf, buf->len, bits);
 	++buf->len;
+	return true;
 }
 
-void ivmBufferWrite32(IvmBuffer buf, uint32_t bits){
-	static uint8_t bytes[sizeof(bits)];
+template<typename Val>
+static inline bool ivmBufferWriteN(IvmBuffer buf, Val val){
+	static uint8_t bytes[sizeof(Val)];
 
-	for(std::size_t i = 0; i < sizeof(bits); i++){
-		bytes[i] = (bits >> (i * 8)) & 0xFF;
+	for(size_t i = 0; i < sizeof(Val); i++){
+		bytes[i] = (val >> (i * 8u)) & 0xFFu;
 	}
 
-	ivmBufferWrite(buf, sizeof(bits), bytes);
+	return ivmBufferWrite(buf, sizeof(bytes), bytes);
+}
+
+bool ivmBufferWrite16(IvmBuffer buf, uint16_t bits){
+	return ivmBufferWriteN(buf, bits);
+}
+
+bool ivmBufferWrite32(IvmBuffer buf, uint32_t bits){
+	return ivmBufferWriteN(buf, bits);
+}
+
+bool ivmBufferWrite64(IvmBuffer buf, uint64_t bits){
+	return ivmBufferWriteN(buf, bits);
 }
 
 bool ivmBufferMakeExecutable(IvmBuffer buf){
-	if(mprotect(buf->ptr, buf->len, PROT_EXEC) != 0){
+	if(!makeMemoryExecutable(buf->len, buf->ptr)){
 		return false;
 	}
 
@@ -127,7 +212,7 @@ bool ivmBufferMakeExecutable(IvmBuffer buf){
 }
 
 bool ivmBufferMakeWritable(IvmBuffer buf){
-	if(mprotect(buf->ptr, buf->len, PROT_READ | PROT_WRITE) != 0){
+	if(!makeMemoryWritable(buf->len, buf->ptr)){
 		return false;
 	}
 

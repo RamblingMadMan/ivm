@@ -1,0 +1,9 @@
+(fn fact (i32 i32) (
+	(local res i32)
+	(store res 1)
+	(def _t (
+		(store res (* res $0))
+		(store $0 (- $0 1))))
+	(def _f (
+		(ret res)))
+	(branch (> $0 0) _t _f)))

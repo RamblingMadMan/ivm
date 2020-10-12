@@ -14,7 +14,7 @@ set(
 	${IVM_INCLUDE_DIR}/ivm/IR.h
 )
 
-include_directories(include)
+add_subdirectory(deps/sexi)
 
 add_subdirectory(lib)
 add_subdirectory(test)

@@ -1,0 +1,3 @@
+[submodule "deps/sexi"]
+	path = deps/sexi
+	url = https://github.com/RamblingMadMan/sexi.git
