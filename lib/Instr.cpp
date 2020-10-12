@@ -26,9 +26,6 @@
 #include <vector>
 #include <map>
 #include <filesystem>
-#include <fstream>
-
-#include <libelf.h>
 
 #include "ivm/Instr.h"
 #include "ivm/Buffer.h"

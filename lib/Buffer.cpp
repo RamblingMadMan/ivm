@@ -16,12 +16,12 @@
 	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-#include <cassert>
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
 #include <cstdio>
 #include <new>
+#include <memory>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -85,6 +85,7 @@ static inline const char *getMemError(){
 #error "Unsupported platform"
 #endif
 
+
 #include "ivm/Buffer.h"
 
 struct IvmBufferT{
@@ -118,7 +119,11 @@ IvmBuffer ivmCreatePageBuffer(){
 	return ivmCreateBuffer(pageSize);
 }
 
-void ivmDestroyBuffer(IvmBuffer buf){ unmapMem(buf->cap, buf->ptr); }
+void ivmDestroyBuffer(IvmBuffer buf){
+	unmapMem(buf->cap, buf->ptr);
+	std::destroy_at(buf);
+	std::free(buf);
+}
 
 bool ivmBufferIsWritable(IvmBufferConst buf){ return buf->isWritable; }
 
