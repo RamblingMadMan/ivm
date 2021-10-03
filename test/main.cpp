@@ -193,6 +193,7 @@ void factCaller(void*, size_t len, void *code){
 		std::exit(EXIT_FAILURE);
 	}
 
+	/*
 	std::printf("%x", int(bytes[0]));
 
 	for(size_t i = 1; i < len; i++){
@@ -202,6 +203,7 @@ void factCaller(void*, size_t len, void *code){
 	std::printf("\n");
 
 	std::fflush(stdout);
+	*/
 
 	auto iFact = reinterpret_cast<int(*)(int)>(code);
 
@@ -209,8 +211,10 @@ void factCaller(void*, size_t len, void *code){
 
 	std::srand(std::time(nullptr));
 
-	std::vector<int> testData;
+	std::vector<int> testData, testResults0, testResults1;
 	testData.resize(numTests);
+	testResults0.resize(numTests);
+	testResults1.resize(numTests);
 
 	for(std::size_t i = 0; i < numTests; i++){
 		testData[i] = std::rand() % 5;
@@ -218,35 +222,40 @@ void factCaller(void*, size_t len, void *code){
 
 	int res = 0;
 
-	auto cstart = Clock::now();
+	double cT = 0.0, ivmT = 0.0;
+
 	for(size_t i = 0; i < numTests; i++){
+		auto tStart = Clock::now();
 		res = cFact(testData[i]);
-		(void)res;
+		auto tEnd = Clock::now();
+		cT += std::chrono::duration<double, std::nano>(tEnd - tStart).count();
+		testResults0[i] = res;
 	}
-	auto cend = Clock::now();
 
-	std::cout << "C factorial result:   " << res << '\n' << std::flush;
-
-	auto istart = Clock::now();
 	for(size_t i = 0; i < numTests; i++){
+		auto tStart = Clock::now();
 		res = iFact(testData[i]);
-		(void)res;
+		auto tEnd = Clock::now();
+		ivmT += std::chrono::duration<double, std::nano>(tEnd - tStart).count();
+		testResults1[i] = res;
 	}
-	auto iend = Clock::now();
 
-	std::cout << "IVM factorial result: " << res << '\n' << std::flush;
+	for(size_t i = 0; i < numTests; i++){
+		auto cRes = testResults0[i];
+		auto ivmRes = testResults1[i];
+		if(ivmRes != cRes){
+			std::cerr << "Bad result for fact(" << testData[i] << "): C=" << cRes << " IVM=" << ivmRes << '\n';
+		}
+	}
 
-	auto cdt = cend - cstart;
-	auto idt = iend - istart;
-
-	auto cavg = std::chrono::nanoseconds(cdt).count() / double(numTests);
-	auto iavg = std::chrono::nanoseconds(idt).count() / double(numTests);
-	auto davg = iavg - cavg;
+	auto cAvg = cT / double(numTests);
+	auto ivmAvg = ivmT / double(numTests);
+	auto dAvg = ivmAvg - cAvg;
 
 	std::cout << numTests << " tests\n";
-	std::cout << "C factorial avg:   " << cavg << "ns\n";
-	std::cout << "IVM factorial avg: " << std::chrono::nanoseconds(idt).count() / double(numTests) << "ns\n";
-	std::cout << davg << " difference\n";
+	std::cout << "C factorial avg:   " << cAvg << "ns\n";
+	std::cout << "IVM factorial avg: " << ivmAvg << "ns\n";
+	std::cout << dAvg << " difference\n";
 }
 
 int main(int argc, char *argv[]){
